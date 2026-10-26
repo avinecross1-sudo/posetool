@@ -48,6 +48,7 @@ button.active { background: var(--accent); color: #1b1b1b; border-color: var(--a
 .dropdown:focus-within .menu, .dropdown.open .menu { display: flex; }
 .dropdown .menu button { border: none; background: transparent; text-align: left; padding: 7px 10px; }
 .dropdown .menu button:hover { background: var(--panel-2); }
+.dropdown .menu .menu-sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted, #8a94a3); padding: 8px 10px 3px; }
 
 /* ---------- layout ---------- */
 main { flex: 1; display: flex; min-height: 0; }

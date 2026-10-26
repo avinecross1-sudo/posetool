@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { tube, gauss, angGauss } from './sculpt.js';
 import { FINGERS, THUMB, handRot } from './hands.js';
+import { Rig } from './rig.js';
+import { MODELS, getModel } from './models.js';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -53,7 +55,7 @@ const round = (v, n = 1000) => Math.round(v * n) / n;
 // ---------------------------------------------------------------- Figure
 
 export class Figure {
-  constructor({ type = 'male', color = '#d8b48a', id } = {}) {
+  constructor({ type = 'male', color = '#d8b48a', id, model = null } = {}) {
     this.kind = 'figure';
     this.id = id || uid();
     this.type = BODY_TYPES[type] ? type : 'male';
@@ -64,11 +66,20 @@ export class Figure {
     this.mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0 });
     this.jointMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0 });
     this.setColor(color);
-    this.build();
+    // model: key of a rigged GLB (see models.js) or null for the sculpted mannequin.
+    this.model = model && getModel(model) ? model : null;
+    this.rig = null;
+    if (this.model) {
+      this.rig = new Rig(this, getModel(this.model), { hipsY: HIPS_Y, headScale: BODY_TYPES[this.type].head });
+      this.meshes = this.rig.meshes;
+    } else this.build();
     this.root.scale.setScalar(BODY_TYPES[this.type].scale);
   }
 
-  get label() { return `${BODY_TYPES[this.type].label} figure`; }
+  get label() {
+    const B = BODY_TYPES[this.type].label;
+    return this.model ? `${B} · ${MODELS[this.model]?.label ?? this.model}` : `${B} figure`;
+  }
 
   setColor(color) {
     this.color = color;
@@ -324,20 +335,23 @@ export class Figure {
 
   dropToFloor() {
     this.root.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(this.root);
+    this.rig?.update();
+    const box = new THREE.Box3().setFromObject(this.root, !!this.rig);
     this.joints.hips.position.y -= box.min.y / this.root.scale.y;
   }
 
   serialize() {
     return {
       kind: 'figure', id: this.id, type: this.type, color: this.color,
+      ...(this.model && { model: this.model }),
       pos: this.root.position.toArray().map((v) => round(v)),
       pose: this.getPose(),
     };
   }
 
   dispose() {
-    for (const m of this.meshes) if (m.geometry !== SPHERE) m.geometry.dispose();
+    if (this.rig) this.rig.dispose();
+    else for (const m of this.meshes) if (m.geometry !== SPHERE) m.geometry.dispose();
     this.mat.dispose();
     this.jointMat.dispose();
   }
@@ -432,7 +446,7 @@ export class Prop {
 
 export function deserialize(d) {
   if (d.kind === 'figure') {
-    const f = new Figure({ type: d.type, color: d.color, id: d.id });
+    const f = new Figure({ type: d.type, color: d.color, id: d.id, model: d.model });
     if (d.pos) f.root.position.fromArray(d.pos);
     if (d.pose) f.setPose(d.pose);
     return f;

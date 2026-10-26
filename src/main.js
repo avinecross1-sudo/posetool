@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { Figure, Prop, BODY_TYPES, PROP_SHAPES, JOINT_LABELS, deserialize, uid } from './objects.js';
+import { MODELS, loadModel, loadSceneModels, importModel, restoreImported } from './models.js';
 import { POSES } from './poses.js';
 import { IK_CHAINS, solveCCD } from './ik.js';
 import { HAND_PRESETS, handRot, readHand } from './hands.js';
@@ -150,6 +151,11 @@ function applyHighlights() {
       o.setHighlight(previewMode ? null : sel?.owner === o ? 'select' : hover?.owner === o ? 'hover' : null);
       continue;
     }
+    if (o.rig) {
+      const pick = (h) => (!previewMode && h?.owner === o ? h.joint?.name ?? null : null);
+      o.rig.highlight(pick(sel), pick(hover));
+      continue;
+    }
     for (const m of o.meshes) {
       let mat = m.userData.baseMat;
       if (!previewMode) {
@@ -216,7 +222,7 @@ function hitTest(ev) {
   raycaster.setFromCamera(ndc, camera);
   for (const h of raycaster.intersectObjects(content.children, true)) {
     const u = h.object.userData;
-    if (u.owner) return { owner: u.owner, joint: u.joint || null };
+    if (u.owner) return { owner: u.owner, joint: u.owner.rig?.pickJoint(h) ?? u.joint ?? null };
   }
   return null;
 }
@@ -303,8 +309,11 @@ function currentFigure() {
   return figs.length === 1 ? figs[0] : null;
 }
 
-function addFigure(type) {
-  const f = addObject(new Figure({ type }));
+async function addFigure(type, model = null) {
+  if (model) {
+    try { await loadModel(model); } catch (err) { return alert('Could not load the model: ' + err.message); }
+  }
+  const f = addObject(new Figure({ type, model }));
   f.root.position.x = freeSpot();
   f.setPose(POSES.Stand);
   select({ owner: f, joint: f.joints.chest });
@@ -410,6 +419,7 @@ $('#file-input').addEventListener('change', async (e) => {
   try {
     const data = JSON.parse(await file.text());
     if (data.env) { Object.assign(env, data.env); applyEnv(); renderScenePanel(); }
+    await loadSceneModels(data);
     sel = null;
     loadScene(data);
     commit();
@@ -437,7 +447,11 @@ const actions = {
 
 // ================================================================ toolbar
 
-$('#menu-figure').innerHTML = Object.entries(BODY_TYPES).map(([k, v]) => `<button data-figure="${k}">${v.label}</button>`).join('');
+$('#menu-figure').innerHTML =
+  '<div class="menu-sub">Mannequin</div>' +
+  Object.entries(BODY_TYPES).map(([k, v]) => `<button data-figure="${k}">${v.label}</button>`).join('') +
+  '<div class="menu-sub">Detailed (Xbot)</div>' +
+  Object.entries(BODY_TYPES).map(([k, v]) => `<button data-figure="${k}" data-model="xbot">${v.label}</button>`).join('');
 $('#menu-prop').innerHTML = Object.entries(PROP_SHAPES).map(([k, v]) => `<button data-prop="${k}">${v}</button>`).join('');
 
 document.addEventListener('click', (e) => {
@@ -447,7 +461,7 @@ document.addEventListener('click', (e) => {
   if (act && actions[act]) actions[act]();
   else if (m) setMode(m);
   else if (view) setView(view);
-  else if (figure) addFigure(figure);
+  else if (figure) addFigure(figure, b.dataset.model || null);
   else if (prop) addProp(prop);
   else return;
   if (b.closest('.menu')) document.activeElement?.blur();
@@ -494,6 +508,10 @@ function refreshSelPanel() {
     }
     html += `<div class="block">
       <div class="block-title">${o.label}</div>
+      <div class="row"><span>Model</span><select data-p="model">
+        <option value="">Sculpted mannequin</option>
+        ${Object.entries(MODELS).map(([k, v]) => `<option value="${k}" ${k === o.model ? 'selected' : ''}>${v.label}</option>`).join('')}
+      </select></div>
       <div class="row"><span>Body</span><select data-p="type">
         ${Object.entries(BODY_TYPES).map(([k, v]) => `<option value="${k}" ${k === o.type ? 'selected' : ''}>${v.label}</option>`).join('')}
       </select></div>
@@ -503,6 +521,7 @@ function refreshSelPanel() {
         <button data-p="reset-pose">Reset pose</button>
         <button data-p="floor">Drop to floor</button>
         <button data-p="hips">Select hips</button>
+        <button data-p="import-model" title="Load a Mixamo-rigged GLB in T-pose">Import model…</button>
       </div></div>`;
     const jn = sel.joint?.name || '';
     if (jn.startsWith('l_') || jn.startsWith('r_')) handSide = jn[0];
@@ -582,19 +601,42 @@ selPanel.addEventListener('change', (e) => {
     handSide = el.value;
     return updatePanelValues();
   }
-  if (el.dataset.p === 'type') {
-    const old = sel.owner;
-    const d = old.serialize();
-    d.type = el.value;
-    const f = deserialize(d);
-    const jointName = sel.joint?.name;
-    objects.splice(objects.indexOf(old), 1, f);
-    content.remove(old.root);
-    old.dispose();
-    content.add(f.root);
-    select({ owner: f, joint: jointName ? f.joints[jointName] : null });
-  }
+  if (el.dataset.p === 'type') return rebuildFigure(sel.owner, { type: el.value });
+  if (el.dataset.p === 'model') return rebuildFigure(sel.owner, { model: el.value || null });
   commit();
+});
+
+/** Replace a figure with a copy that has a different body type or model, keeping its pose. */
+async function rebuildFigure(old, changes) {
+  if (changes.model) {
+    try { await loadModel(changes.model); } catch (err) { refreshSelPanel(); return alert('Could not load the model: ' + err.message); }
+  }
+  const d = { ...old.serialize(), ...changes };
+  if (!d.model) delete d.model;
+  const f = deserialize(d);
+  const jointName = sel?.owner === old ? sel.joint?.name : null;
+  objects.splice(objects.indexOf(old), 1, f);
+  content.remove(old.root);
+  old.dispose();
+  content.add(f.root);
+  select({ owner: f, joint: jointName ? f.joints[jointName] : null });
+  commit();
+}
+
+const modelInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.glb,model/gltf-binary', hidden: true });
+document.body.append(modelInput);
+modelInput.addEventListener('change', async () => {
+  const file = modelInput.files[0];
+  modelInput.value = '';
+  if (!file) return;
+  try {
+    const key = await importModel(file);
+    const fig = currentFigure();
+    if (fig) await rebuildFigure(fig, { model: key });
+    else await addFigure('male', key);
+  } catch (err) {
+    alert('Could not import that model: ' + err.message);
+  }
 });
 
 selPanel.addEventListener('click', (e) => {
@@ -607,6 +649,7 @@ selPanel.addEventListener('click', (e) => {
   const p = btn?.dataset.p;
   if (!p || !sel) return;
   const o = sel.owner;
+  if (p === 'import-model') return modelInput.click();
   switch (p) {
     case 'reset-joint': sel.joint.rotation.set(0, 0, 0); break;
     case 'space':
@@ -742,18 +785,27 @@ applyEnv();
 renderScenePanel();
 renderPosePanel();
 
-const saved = localStorage.getItem(LS_SCENE);
-let restored = false;
-if (saved) {
-  try { loadScene(saved); restored = objects.length > 0; } catch { clearObjects(); }
-}
-if (restored) commit();
-else addFigure('male');
-select(null);
 resize();
+
+(async () => {
+  await restoreImported();
+  const saved = localStorage.getItem(LS_SCENE);
+  let restored = false;
+  if (saved) {
+    try {
+      await loadSceneModels(JSON.parse(saved));
+      loadScene(saved);
+      restored = objects.length > 0;
+    } catch { clearObjects(); }
+  }
+  if (restored) commit();
+  else await addFigure('male');
+  select(null);
+})();
 
 renderer.setAnimationLoop(() => {
   orbit.update();
+  for (const o of objects) o.rig?.update();
   renderer.render(scene, camera);
 });
 

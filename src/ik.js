@@ -37,19 +37,29 @@ function stepHinge(joint, a, b) {
 const up = new THREE.Vector3();
 const lp = new THREE.Vector3();
 
-/** Analytic two-bone IK (arm / leg): bend the hinge to the right length, then aim the upper bone. */
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/**
+ * Analytic two-bone IK (arm / leg): bend the hinge to the right length, then aim the upper bone.
+ * Works in the upper bone's frame, where the effector sits at L + Rx(theta) * E
+ * (L = hinge offset, E = effector offset), so bones need not be collinear at rest.
+ */
 function solveTwoBone(figure, eff, lower, upper, target) {
-  const h = HINGES[lower.name];
+  const [min, max] = HINGES[lower.name].map((v) => v * D2R);
   figure.root.updateMatrixWorld(true);
-  upper.getWorldPosition(up);
-  lower.getWorldPosition(lp);
-  eff.getWorldPosition(ep);
-  const a = up.distanceTo(lp);
-  const b = lp.distanceTo(ep);
-  const d = THREE.MathUtils.clamp(up.distanceTo(target), Math.abs(a - b) + 1e-4, a + b - 1e-4);
-  const interior = Math.acos(THREE.MathUtils.clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1));
-  const bend = Math.min(Math.PI - interior, 160 * D2R);
-  lower.rotation.set(h[0] < 0 ? -bend : bend, 0, 0);
+  const L = lower.position, E = eff.position;
+  // |L + Rx(theta) E|^2 = LL + EE + 2 (C + A cos(theta) + B sin(theta))
+  const C = L.x * E.x, A = L.y * E.y + L.z * E.z, B = L.z * E.y - L.y * E.z;
+  const R = Math.hypot(A, B), phi = Math.atan2(B, A);
+  const base = L.lengthSq() + E.lengthSq() + 2 * C;
+  const d2 = upper.worldToLocal(lp.copy(target)).lengthSq();
+  const k = THREE.MathUtils.clamp((d2 - base) / (2 * R || 1), -1, 1);
+  const alpha = Math.acos(k);
+  // Two solutions; take the one inside the hinge range (or the nearest after clamping).
+  const pick = [wrap(phi + alpha), wrap(phi - alpha)]
+    .map((t) => ({ t, c: THREE.MathUtils.clamp(t, min, max) }))
+    .sort((p, q) => Math.abs(p.t - p.c) - Math.abs(q.t - q.c))[0];
+  lower.rotation.set(Math.min(Math.abs(pick.c), 160 * D2R) * Math.sign(pick.c), 0, 0);
   lower.updateMatrixWorld(true);
   for (let i = 0; i < 2; i++) {
     upper.getWorldPosition(up);
