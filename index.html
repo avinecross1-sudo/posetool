@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PoseTool — 3D pose reference</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header id="toolbar">
+      <div class="brand">PoseTool</div>
+
+      <div class="group">
+        <div class="dropdown">
+          <button class="tb" title="Add a figure">＋ Figure ▾</button>
+          <div class="menu" id="menu-figure"></div>
+        </div>
+        <div class="dropdown">
+          <button class="tb" title="Add a prop">＋ Prop ▾</button>
+          <div class="menu" id="menu-prop"></div>
+        </div>
+      </div>
+
+      <div class="group seg" id="modes">
+        <button class="tb" data-mode="rotate" title="Rotate joints / props (R)">⟳ Rotate</button>
+        <button class="tb" data-mode="move" title="Move the whole figure or prop (T)">✥ Move</button>
+        <button class="tb" data-mode="ik" title="Drag hands, feet or head; the limb follows (I)">☍ IK</button>
+        <button class="tb" data-mode="scale" title="Scale props (S)">⤢ Scale</button>
+      </div>
+
+      <div class="group">
+        <button class="tb" data-act="undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+        <button class="tb" data-act="redo" title="Redo (Ctrl+Y)">↷ Redo</button>
+        <button class="tb" data-act="duplicate" title="Duplicate (Ctrl+D)">⧉ Duplicate</button>
+        <button class="tb" data-act="delete" title="Delete (Del)">🗑 Delete</button>
+      </div>
+
+      <div class="group">
+        <div class="dropdown">
+          <button class="tb" title="Camera views">👁 View ▾</button>
+          <div class="menu">
+            <button data-view="front">Front</button>
+            <button data-view="back">Back</button>
+            <button data-view="left">Left side</button>
+            <button data-view="right">Right side</button>
+            <button data-view="top">Top</button>
+            <button data-view="three4">Three-quarter</button>
+            <button data-act="focus">Focus selection (F)</button>
+          </div>
+        </div>
+        <div class="dropdown">
+          <button class="tb" title="File">📁 File ▾</button>
+          <div class="menu">
+            <button data-act="new">New scene</button>
+            <button data-act="save">Save scene (.json)</button>
+            <button data-act="open">Open scene…</button>
+            <button data-act="png">Export PNG</button>
+          </div>
+        </div>
+        <button class="tb primary" data-act="preview" title="Clean preview (P)">📷 Preview</button>
+      </div>
+      <input type="file" id="file-input" accept=".json,application/json" hidden />
+    </header>
+
+    <main>
+      <div id="viewport">
+        <div id="hint">Click a body part to select · drag the rings to rotate · drag empty space to orbit · right-drag to pan · scroll to zoom · double-click a part to reset it</div>
+        <div id="preview-bar">
+          <button data-act="png">Save PNG</button>
+          <button data-act="preview">Exit preview</button>
+        </div>
+      </div>
+
+      <aside id="panel">
+        <details open>
+          <summary>Selection</summary>
+          <div id="sel-panel"></div>
+        </details>
+        <details open>
+          <summary>Poses</summary>
+          <div id="pose-panel"></div>
+        </details>
+        <details>
+          <summary>Scene &amp; lighting</summary>
+          <div id="scene-panel"></div>
+        </details>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
