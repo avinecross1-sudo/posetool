@@ -57,11 +57,31 @@ function defaultOffset(name, p) {
   return [0, name.includes('toes') ? -0.05 : 0.05, name.includes('toes') ? 0.13 : 0];
 }
 
+/** Swing the arms of an A-pose / relaxed model out along +-X so calibration sees a T-pose. */
+function toTPose(scene, bones) {
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Quaternion(), w = new THREE.Quaternion();
+  for (const [S, s] of [['Left', 1], ['Right', -1]]) {
+    const chain = ['Arm', 'ForeArm', 'Hand', 'HandMiddle1'].map((n) => bones[S + n]);
+    for (let i = 0; i < 3; i++) {
+      const [bone, child] = [chain[i], chain[i + 1]];
+      if (!bone || !child) break;
+      scene.updateMatrixWorld(true);
+      const dir = child.getWorldPosition(b).sub(bone.getWorldPosition(a)).normalize();
+      const target = a.set(s, 0, 0);
+      if (dir.angleTo(target) < 5 * Math.PI / 180) continue;
+      q.setFromUnitVectors(dir, target).multiply(bone.getWorldQuaternion(w));
+      bone.quaternion.copy(bone.parent.getWorldQuaternion(w).invert().multiply(q));
+    }
+  }
+  scene.updateMatrixWorld(true);
+}
+
 /** Scale/offset that stand the model on the floor with its hips at hipsY, plus per-joint data. */
 function calibrate(gltf, hipsY) {
   const scene = gltf.scene;
   scene.updateMatrixWorld(true);
   const bones = boneMap(scene);
+  toTPose(scene, bones);
   const floorY = new THREE.Box3().setFromObject(scene, true).min.y;
   const hipsP = bones.Hips.getWorldPosition(new THREE.Vector3());
   const k = hipsY / (hipsP.y - floorY);

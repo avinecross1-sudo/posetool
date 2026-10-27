@@ -521,7 +521,7 @@ function refreshSelPanel() {
         <button data-p="reset-pose">Reset pose</button>
         <button data-p="floor">Drop to floor</button>
         <button data-p="hips">Select hips</button>
-        <button data-p="import-model" title="Load a Mixamo-rigged GLB in T-pose">Import model…</button>
+        <button data-p="import-model" title="Load a Mixamo-rigged GLB or FBX in T-pose">Import model…</button>
       </div></div>`;
     const jn = sel.joint?.name || '';
     if (jn.startsWith('l_') || jn.startsWith('r_')) handSide = jn[0];
@@ -619,11 +619,11 @@ async function rebuildFigure(old, changes) {
   content.remove(old.root);
   old.dispose();
   content.add(f.root);
-  select({ owner: f, joint: jointName ? f.joints[jointName] : null });
+  select({ owner: f, joint: f.joints[jointName] || f.joints.chest });
   commit();
 }
 
-const modelInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.glb,model/gltf-binary', hidden: true });
+const modelInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.glb,.fbx,model/gltf-binary', hidden: true });
 document.body.append(modelInput);
 modelInput.addEventListener('change', async () => {
   const file = modelInput.files[0];

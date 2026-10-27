@@ -1,13 +1,15 @@
-// Rigged GLB models for the detailed figure style. Xbot ships with the app; users can
-// import any Mixamo-rigged (T-pose) GLB, which is kept in IndexedDB across reloads.
+// Rigged models for the detailed figure style. Xbot ships with the app; users can import
+// any Mixamo-rigged (T-pose) GLB or FBX, which is kept in IndexedDB across reloads.
 
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 export const MODELS = {
   xbot: { label: 'Xbot (detailed)', url: `${import.meta.env.BASE_URL}models/Xbot.glb` },
 };
 
 const loader = new GLTFLoader();
+const fbxLoader = new FBXLoader();
 const loaded = new Map(); // key -> gltf
 const pending = new Map(); // key -> Promise<gltf>
 
@@ -21,6 +23,19 @@ function validate(gltf) {
   return gltf;
 }
 
+// FBX files start with "Kaydara FBX Binary" or, as text, a "; FBX" comment.
+function isFBX(buffer) {
+  const head = new TextDecoder().decode(new Uint8Array(buffer, 0, Math.min(64, buffer.byteLength)));
+  return head.startsWith('Kaydara FBX') || /^\s*; FBX/.test(head);
+}
+
+/** Parse a GLB or FBX buffer into a gltf-like { scene, userData }. */
+async function parse(buffer) {
+  if (!isFBX(buffer)) return loader.parseAsync(buffer, '');
+  const scene = fbxLoader.parse(buffer, '');
+  return { scene, animations: scene.animations, userData: {} };
+}
+
 export const getModel = (key) => loaded.get(key);
 
 export function loadModel(key) {
@@ -28,7 +43,7 @@ export function loadModel(key) {
   if (!pending.has(key)) {
     const m = MODELS[key];
     if (!m) return Promise.reject(new Error(`Unknown model "${key}"`));
-    const p = (m.buffer ? loader.parseAsync(m.buffer, '') : loader.loadAsync(m.url))
+    const p = (m.buffer ? parse(m.buffer) : loader.loadAsync(m.url))
       .then(validate)
       .then((g) => { loaded.set(key, g); return g; })
       .finally(() => pending.delete(key));
@@ -72,11 +87,11 @@ export async function restoreImported() {
   } catch { /* IndexedDB unavailable: imports just won't persist */ }
 }
 
-/** Parse, validate and store a user GLB. Returns its model key. */
+/** Parse, validate and store a user GLB / FBX. Returns its model key. */
 export async function importModel(file) {
   const buffer = await file.arrayBuffer();
-  validate(await loader.parseAsync(buffer.slice(0), ''));
-  const label = file.name.replace(/\.(glb|gltf)$/i, '');
+  validate(await parse(buffer.slice(0)));
+  const label = file.name.replace(/\.(glb|gltf|fbx)$/i, '');
   const key = 'import:' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   MODELS[key] = { label, buffer };
   loaded.delete(key);
