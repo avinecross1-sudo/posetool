@@ -5,6 +5,7 @@ import { Figure, Prop, BODY_TYPES, PROP_SHAPES, JOINT_LABELS, deserialize, uid }
 import { MODELS, loadModel, loadSceneModels, importModel, restoreImported } from './models.js';
 import { POSES } from './poses.js';
 import { IK_CHAINS, solveCCD } from './ik.js';
+import { beginContact, applyContact } from './floor.js';
 import { HAND_PRESETS, handRot, readHand } from './hands.js';
 
 const D2R = Math.PI / 180;
@@ -66,7 +67,7 @@ const ikTarget = new THREE.Object3D();
 scene.add(ikTarget);
 
 const env = Object.assign(
-  { bg: '#3a3f47', lightAz: 35, lightEl: 55, lightInt: 2.4, ambient: 1.0, shadows: true, grid: true, fov: 45, transparent: false },
+  { bg: '#3a3f47', lightAz: 35, lightEl: 55, lightInt: 2.4, ambient: 1.0, shadows: true, grid: true, fov: 45, transparent: false, floorContact: true },
   loadJSON(LS_ENV, {}),
 );
 
@@ -93,6 +94,7 @@ scene.add(tcHelper);
 
 tc.addEventListener('dragging-changed', (e) => {
   orbit.enabled = !e.value;
+  contact = e.value ? startContact() : null;
   if (!e.value) {
     if (ikEffector && sel?.joint) sel.joint.getWorldPosition(ikTarget.position);
     commit();
@@ -100,8 +102,21 @@ tc.addEventListener('dragging-changed', (e) => {
 });
 tc.addEventListener('objectChange', () => {
   if (ikEffector && sel) solveCCD(sel.owner, ikEffector, ikTarget.position);
+  if (contact) {
+    applyContact(contact, {
+      follow: tc.object === sel.owner.joints.hips && tc.mode === 'translate',
+      ik: ikEffector && { effector: ikEffector, target: ikTarget.position },
+    });
+  }
   updatePanelValues();
 });
+
+// Floor contact for the figure being posed (see floor.js); null when off or not dragging.
+let contact = null;
+function startContact() {
+  if (!env.floorContact || sel?.owner.kind !== 'figure' || !sel.joint) return null;
+  return beginContact(sel.owner, mode === 'move' ? 'hips' : ikEffector || sel.joint.name);
+}
 
 // ================================================================ state
 
@@ -439,6 +454,7 @@ const actions = {
   undo, redo, duplicate, delete: del,
   focus: focusSelection,
   preview: () => setPreview(!previewMode),
+  floor: () => { env.floorContact = !env.floorContact; applyEnv(); updateToolbar(); },
   png: exportPNG,
   save: saveScene,
   open: () => $('#file-input').click(),
@@ -469,6 +485,7 @@ document.addEventListener('click', (e) => {
 
 function updateToolbar() {
   $$('#modes button').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+  $$('[data-act="floor"]').forEach((b) => b.classList.toggle('active', env.floorContact));
   $$('[data-act="undo"]').forEach((b) => (b.disabled = history.index <= 0));
   $$('[data-act="redo"]').forEach((b) => (b.disabled = history.index >= history.stack.length - 1));
   $$('[data-act="duplicate"], [data-act="delete"]').forEach((b) => (b.disabled = !sel));
@@ -582,6 +599,7 @@ selPanel.addEventListener('input', (e) => {
   if (axis !== undefined && t) {
     const v = THREE.MathUtils.clamp(Number(el.value) || 0, -180, 180) * D2R;
     t.rotation[['x', 'y', 'z'][axis]] = v;
+    if (contact) applyContact(contact);
     if (ikEffector && sel?.joint) sel.joint.getWorldPosition(ikTarget.position);
     updatePanelValues();
   } else if (el.dataset.hand) {
@@ -594,6 +612,12 @@ selPanel.addEventListener('input', (e) => {
     sel.owner.root.scale.setScalar(Number(el.value));
   }
 });
+
+// Rotation sliders get floor contact too, from the moment one is focused.
+selPanel.addEventListener('focusin', (e) => {
+  if (e.target.matches('[data-axis], [data-axisnum]')) contact = startContact();
+});
+selPanel.addEventListener('focusout', () => { if (!tc.dragging) contact = null; });
 
 selPanel.addEventListener('change', (e) => {
   const el = e.target;
