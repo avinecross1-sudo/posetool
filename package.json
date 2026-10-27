@@ -1,17 +1,49 @@
 {
   "name": "posetool",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "app": "vite build && electron .",
+    "dist": "vite build && electron-builder --win"
   },
   "dependencies": {
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
     "vite": "^8.3.5"
+  },
+  "description": "3D pose reference tool",
+  "author": "avinecross1-sudo",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.avinecross1.posetool",
+    "productName": "PoseTool",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    }
   }
 }
